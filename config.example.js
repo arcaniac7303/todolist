@@ -2,3 +2,4 @@
 window.SUPABASE_URL = "https://YOUR_PROJECT_REF.supabase.co";
 window.SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_PUBLIC_KEY";
 window.SITE_URL = "https://YOUR_APP.vercel.app";
+window.KAKAO_REST_API_KEY = "YOUR_KAKAO_REST_API_KEY";

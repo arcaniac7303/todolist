@@ -9,6 +9,7 @@ if (fs.existsSync(envPath)) {
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_ANON_KEY;
 const siteUrl = process.env.SITE_URL || "";
+const kakaoKey = process.env.KAKAO_REST_API_KEY || "";
 
 if (!url || !key) {
   console.error("SUPABASE_URL, SUPABASE_ANON_KEY 환경 변수가 필요합니다.");
@@ -18,6 +19,7 @@ if (!url || !key) {
 const content = `window.SUPABASE_URL = ${JSON.stringify(url)};
 window.SUPABASE_ANON_KEY = ${JSON.stringify(key)};
 window.SITE_URL = ${JSON.stringify(siteUrl)};
+window.KAKAO_REST_API_KEY = ${JSON.stringify(kakaoKey)};
 `;
 
 fs.writeFileSync(path.join(__dirname, "..", "config.js"), content);

@@ -226,17 +226,48 @@
       }
 
       async function signInWithKakao() {
+        if (!window.KAKAO_REST_API_KEY) {
+          showError("KAKAO_REST_API_KEY가 설정되지 않았습니다. Vercel 환경 변수를 확인해 주세요.");
+          return;
+        }
+
         setLoading(true);
 
-        const { error } = await supabaseClient.auth.signInWithOAuth({
-          provider: "kakao",
-          options: {
-            redirectTo,
-          },
+        const callbackUrl = `${redirectTo.replace(/\/$/, "")}/api/kakao/callback`;
+        const params = new URLSearchParams({
+          client_id: window.KAKAO_REST_API_KEY,
+          redirect_uri: callbackUrl,
+          response_type: "code",
+          scope: "openid profile_nickname profile_image",
         });
 
+        window.location.href = `https://kauth.kakao.com/oauth/authorize?${params}`;
+      }
+
+      async function handleKakaoCallback() {
+        const hashParams = new URLSearchParams(window.location.hash.slice(1));
+        const idToken = hashParams.get("kakao_id_token");
+
+        if (!idToken) {
+          const authError = new URLSearchParams(window.location.search).get("auth_error");
+          if (authError) {
+            showError(`카카오 로그인에 실패했습니다. (${authError})`);
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+          return;
+        }
+
+        window.history.replaceState(null, "", window.location.pathname);
+        setLoading(true);
+
+        const { error } = await supabaseClient.auth.signInWithIdToken({
+          provider: "kakao",
+          token: idToken,
+        });
+
+        setLoading(false);
+
         if (error) {
-          setLoading(false);
           console.error("카카오 로그인에 실패했습니다.", error);
           showError("카카오 로그인에 실패했습니다. Supabase/카카오 설정을 확인해 주세요.");
         }
@@ -259,6 +290,8 @@
       }
 
       async function initAuth() {
+        await handleKakaoCallback();
+
         const {
           data: { session },
           error,
