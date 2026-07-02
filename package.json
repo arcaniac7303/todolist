@@ -1,0 +1,11 @@
+{
+  "name": "memo",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/generate-config.js",
+    "dev:config": "node scripts/generate-config.js"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.7"
+  }
+}

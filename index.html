@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple Todo List</title>
+  </head>
+  <body>
+    <div class="card">
+      <h1>📝 간단한 메모장</h1>
+      <p>카카오 로그인 후 나만의 메모를 저장하세요.</p>
+
+      <div id="auth-bar" class="auth-bar">
+        <span id="user-label" class="user-label">로그인이 필요합니다.</span>
+        <button id="kakao-login-btn" class="kakao-btn" type="button">카카오 로그인</button>
+        <button id="logout-btn" class="logout-btn hidden" type="button">로그아웃</button>
+      </div>
+
+      <form id="todo-form" class="hidden">
+        <input id="todo-input" type="text" placeholder="메모를 입력하세요" maxlength="60" />
+        <button class="add-btn" type="submit">추가</button>
+      </form>
+
+      <ul id="todo-list" class="todo-list"></ul>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="config.js"></script>
+    <script>
+      const form = document.getElementById("todo-form");
+      const input = document.getElementById("todo-input");
+      const list = document.getElementById("todo-list");
+      const submitBtn = form.querySelector(".add-btn");
+      const userLabel = document.getElementById("user-label");
+      const kakaoLoginBtn = document.getElementById("kakao-login-btn");
+      const logoutBtn = document.getElementById("logout-btn");
+
+      if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
+        list.innerHTML =
+          '<li class="status error">config.js에 SUPABASE_URL과 SUPABASE_ANON_KEY를 설정해 주세요.</li>';
+        throw new Error("Supabase config missing");
+      }
+
+      const redirectTo = window.SITE_URL || window.location.origin;
+
+      const supabase = window.supabase.createClient(
+        window.SUPABASE_URL,
+        window.SUPABASE_ANON_KEY,
+        {
+          auth: {
+            flowType: "pkce",
+            detectSessionInUrl: true,
+            persistSession: true,
+          },
+        }
+      );
+
+      let todos = [];
+      let currentUser = null;
+
+      function escapeHtml(value) {
+        return value
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function showError(message) {
+        list.innerHTML = `<li class="status error">${escapeHtml(message)}</li>`;
+      }
+
+      function setLoading(isLoading) {
+        submitBtn.disabled = isLoading;
+        input.disabled = isLoading;
+        kakaoLoginBtn.disabled = isLoading;
+        logoutBtn.disabled = isLoading;
+      }
+
+      function getUserDisplayName(user) {
+        return (
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          user.user_metadata?.nickname ||
+          user.email ||
+          "카카오 사용자"
+        );
+      }
+
+      function updateAuthUI(user) {
+        currentUser = user;
+
+        if (user) {
+          userLabel.textContent = `${getUserDisplayName(user)}님`;
+          kakaoLoginBtn.classList.add("hidden");
+          logoutBtn.classList.remove("hidden");
+          form.classList.remove("hidden");
+          return;
+        }
+
+        userLabel.textContent = "로그인이 필요합니다.";
+        kakaoLoginBtn.classList.remove("hidden");
+        logoutBtn.classList.add("hidden");
+        form.classList.add("hidden");
+        todos = [];
+        list.innerHTML = '<li class="empty">카카오 로그인 후 메모를 사용할 수 있습니다.</li>';
+      }
+
+      function renderTodos() {
+        if (!currentUser) return;
+
+        if (todos.length === 0) {
+          list.innerHTML = '<li class="empty">아직 기록이 없습니다.</li>';
+          return;
+        }
+
+        list.innerHTML = todos
+          .map(
+            (todo) => `
+              <li class="todo-item ${todo.completed ? "completed" : ""}" data-id="${todo.id}">
+                <div class="todo-left">
+                  <input type="checkbox" ${todo.completed ? "checked" : ""} />
+                  <span class="todo-text">${escapeHtml(todo.text)}</span>
+                </div>
+                <button class="delete-btn" type="button">삭제</button>
+              </li>
+            `
+          )
+          .join("");
+      }
+
+      async function loadTodos() {
+        if (!currentUser) return;
+
+        setLoading(true);
+        list.innerHTML = '<li class="status">불러오는 중...</li>';
+
+        const { data, error } = await supabase
+          .from("todos")
+          .select("id, text, completed, created_at")
+          .order("created_at", { ascending: false });
+
+        setLoading(false);
+
+        if (error) {
+          console.error("메모 목록을 불러오지 못했습니다.", error);
+          showError("메모를 불러오지 못했습니다. Supabase 설정을 확인해 주세요.");
+          return;
+        }
+
+        todos = data ?? [];
+        renderTodos();
+      }
+
+      async function addTodo(text) {
+        if (!currentUser) return;
+
+        const trimmed = text.trim();
+        if (!trimmed) return;
+
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from("todos")
+          .insert({
+            text: trimmed,
+            completed: false,
+            user_id: currentUser.id,
+          })
+          .select("id, text, completed, created_at")
+          .single();
+
+        setLoading(false);
+
+        if (error) {
+          console.error("메모 추가에 실패했습니다.", error);
+          showError("메모 추가에 실패했습니다.");
+          return;
+        }
+
+        todos.unshift(data);
+        renderTodos();
+      }
+
+      async function deleteTodo(id) {
+        if (!currentUser) return;
+
+        setLoading(true);
+
+        const { error } = await supabase.from("todos").delete().eq("id", id);
+
+        setLoading(false);
+
+        if (error) {
+          console.error("메모 삭제에 실패했습니다.", error);
+          showError("메모 삭제에 실패했습니다.");
+          return;
+        }
+
+        todos = todos.filter((todo) => todo.id !== id);
+        renderTodos();
+      }
+
+      async function toggleTodo(id, completed) {
+        if (!currentUser) return;
+
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from("todos")
+          .update({ completed })
+          .eq("id", id)
+          .select("id, text, completed, created_at")
+          .single();
+
+        setLoading(false);
+
+        if (error) {
+          console.error("메모 수정에 실패했습니다.", error);
+          showError("메모 수정에 실패했습니다.");
+          return;
+        }
+
+        todos = todos.map((todo) => (todo.id === id ? data : todo));
+        renderTodos();
+      }
+
+      async function signInWithKakao() {
+        setLoading(true);
+
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "kakao",
+          options: {
+            redirectTo,
+          },
+        });
+
+        if (error) {
+          setLoading(false);
+          console.error("카카오 로그인에 실패했습니다.", error);
+          showError("카카오 로그인에 실패했습니다. Supabase/카카오 설정을 확인해 주세요.");
+        }
+      }
+
+      async function signOut() {
+        setLoading(true);
+
+        const { error } = await supabase.auth.signOut();
+
+        setLoading(false);
+
+        if (error) {
+          console.error("로그아웃에 실패했습니다.", error);
+          showError("로그아웃에 실패했습니다.");
+          return;
+        }
+
+        updateAuthUI(null);
+      }
+
+      async function initAuth() {
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error("세션 확인에 실패했습니다.", error);
+          showError("로그인 상태를 확인하지 못했습니다.");
+          return;
+        }
+
+        updateAuthUI(session?.user ?? null);
+
+        if (session?.user) {
+          await loadTodos();
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const value = input.value;
+        input.value = "";
+        await addTodo(value);
+        input.focus();
+      });
+
+      list.addEventListener("click", async (event) => {
+        const deleteButton = event.target.closest(".delete-btn");
+        if (!deleteButton) return;
+
+        const item = deleteButton.closest(".todo-item");
+        const id = item?.dataset.id;
+        if (!id) return;
+
+        await deleteTodo(id);
+      });
+
+      list.addEventListener("change", async (event) => {
+        if (!event.target.matches('input[type="checkbox"]')) return;
+
+        const item = event.target.closest(".todo-item");
+        const id = item?.dataset.id;
+        if (!id) return;
+
+        await toggleTodo(id, event.target.checked);
+      });
+
+      kakaoLoginBtn.addEventListener("click", signInWithKakao);
+      logoutBtn.addEventListener("click", signOut);
+
+      supabase.auth.onAuthStateChange(async (event, session) => {
+        if (event === "SIGNED_OUT") {
+          updateAuthUI(null);
+          return;
+        }
+
+        if (session?.user) {
+          updateAuthUI(session.user);
+          await loadTodos();
+        }
+      });
+
+      initAuth();
+    </script>
+  </body>
+</html>
